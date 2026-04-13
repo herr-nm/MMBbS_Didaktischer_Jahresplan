@@ -111,17 +111,39 @@ if (isset($_GET['del_subject'])) {
 if (isset($_POST['save_ls'])) {
     $sub = $_POST['subject'];
     $lsData = [
-        'ls_nr' => $_POST['ls_nr'], 'title' => $_POST['title'],
-        'hours' => (int)$_POST['hours'], 'start' => (int)$_POST['start'],
-        'end' => (int)$_POST['end'], 'color' => $_POST['color']
+        'ls_nr' => $_POST['ls_nr'], 
+        'title' => $_POST['title'],
+        'hours' => (int)$_POST['hours'], 
+        'start' => (int)$_POST['start'],
+        'end' => (int)$_POST['end'], 
+        'color' => $_POST['color'],
+        'url' => $_POST['url'] ?? ''
     ];
+
+    // Sicherstellen, dass das Planning-Array existiert
+    if (!isset($data[$activeType][$activeId]['subjects'][$sub]['planning'])) {
+        $data[$activeType][$activeId]['subjects'][$sub]['planning'] = [];
+    }
+
+    // Prüfen, ob wir bearbeiten oder neu anlegen
     if (isset($_POST['ls_index']) && $_POST['ls_index'] !== "") {
-        $data[$activeType][$activeId]['subjects'][$sub]['planning'][$_POST['ls_index']] = $lsData;
+        $index = (int)$_POST['ls_index'];
+        // WICHTIG: Wir überschreiben den Eintrag am übermittelten Index
+        $data[$activeType][$activeId]['subjects'][$sub]['planning'][$index] = $lsData;
     } else {
         $data[$activeType][$activeId]['subjects'][$sub]['planning'][] = $lsData;
     }
+
+    // --- DER ENTSCHEIDENDE FIX ---
+    // Wir sortieren das Array JETZT permanent, bevor es in die JSON geschrieben wird.
+    // So sind Anzeige-Index und Speicher-Index immer identisch.
+    usort($data[$activeType][$activeId]['subjects'][$sub]['planning'], function($a, $b) {
+        return strnatcmp($a['ls_nr'], $b['ls_nr']);
+    });
+
     saveData($data, $jsonFile);
-    header("Location: admin.php?edit_id=$activeId&type=$activeType"); exit;
+    header("Location: admin.php?edit_id=$activeId&type=$activeType"); 
+    exit;
 }
 
 if (isset($_GET['del_ls'])) {
@@ -298,7 +320,10 @@ if (isset($_GET['del_ls'])) {
 					<div><label>Stunden</label><input type="number" name="hours" id="ls_hours" required></div>
 					<div><label>Start (W)</label><input type="number" name="start" id="ls_start" min="1" max="13"></div>
 					<div><label>Ende (W)</label><input type="number" name="end" id="ls_end" min="1" max="13"></div>
-					
+					<div class="col-wide">
+						<label>Link zu Unterlagen (optional)</label>
+						<input type="url" name="url" id="ls_url" placeholder="https://...">
+					</div>
 					<div style="min-width: 140px;">
 						<label>Farbe (HEX)</label>
 						<div style="display: flex; gap: 4px;">
@@ -336,15 +361,7 @@ if (isset($_GET['del_ls'])) {
 					return strnatcasecmp($a, $b);
 				});
 
-				// 2. Innerhalb jedes Fachs die Lernsituationen nach 'ls_nr' sortieren
-				foreach ($current['subjects'] as $sk => &$sub) {
-					if (isset($sub['planning']) && is_array($sub['planning'])) {
-						usort($sub['planning'], function($a, $b) {
-							// Natürliche Sortierung (behandelt 1.1, 1.2, 1.10 korrekt)
-							return strnatcmp($a['ls_nr'], $b['ls_nr']);
-						});
-					}
-				}
+				
 				unset($sub); // Referenz löschen
 				?>
 
@@ -380,16 +397,19 @@ if (isset($_GET['del_ls'])) {
 
         <script>
         function editLS(ls, subKey, index) {
-            document.getElementById('ls_index').value = index;
-            document.getElementById('ls_sub').value = subKey;
-            document.getElementById('ls_title').value = ls.title;
-            document.getElementById('ls_nr').value = ls.ls_nr;
-            document.getElementById('ls_hours').value = ls.hours;
-            document.getElementById('ls_start').value = ls.start;
-            document.getElementById('ls_end').value = ls.end;
-            document.getElementById('ls_color').value = ls.color;
-            window.scrollTo({top: 150, behavior: 'smooth'});
-        }
+    document.getElementById('ls_index').value = index; // Hier wird die Zeilennummer gesetzt
+    document.getElementById('ls_sub').value = subKey;
+    document.getElementById('ls_title').value = ls.title;
+    document.getElementById('ls_nr').value = ls.ls_nr;
+    document.getElementById('ls_hours').value = ls.hours;
+    document.getElementById('ls_start').value = ls.start;
+    document.getElementById('ls_end').value = ls.end;
+    document.getElementById('ls_color').value = ls.color;
+    if(document.getElementById('ls_url')) {
+        document.getElementById('ls_url').value = ls.url || "";
+    }
+    window.scrollTo({top: 150, behavior: 'smooth'});
+}
         function resetLSForm() {
             document.getElementById('ls_index').value = "";
             document.getElementById('ls_form').reset();

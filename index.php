@@ -78,7 +78,6 @@ function stackPlanning($planning) {
 
         .container { padding: 30px 40px; flex: 1; }
 
-        /* Grid Setup */
         .grid { 
             display: grid; 
             grid-template-columns: 280px repeat(13, 1fr); 
@@ -90,7 +89,6 @@ function stackPlanning($planning) {
             overflow: hidden;
         }
 
-        /* Basis-Zelle */
         .cell { 
             background: #fff; 
             padding: 10px; 
@@ -101,7 +99,6 @@ function stackPlanning($planning) {
             box-sizing: border-box;
         }
 
-        /* Header */
         .header-cell { 
             background: var(--primary-blue); 
             color: white; 
@@ -112,11 +109,10 @@ function stackPlanning($planning) {
             padding: 12px 5px;
         }
 
-        /* Sidebar Merged Cell */
         .sidebar-cell.merged {
             background: var(--bg-sidebar);
             font-size: 13px;
-            border-left: 1px solid var(--border-dark); /* Äußerer Rahmen */
+            border-left: 1px solid var(--border-dark);
             display: flex;
             flex-direction: column;
             justify-content: flex-start;
@@ -135,7 +131,6 @@ function stackPlanning($planning) {
             border-left: 1px solid var(--border-dark);
         }
 
-        /* Lernsituationen */
         .ls-bar {
             position: absolute;
             top: 8px;
@@ -151,9 +146,22 @@ function stackPlanning($planning) {
             box-shadow: 0 2px 4px rgba(0,0,0,0.1);
             z-index: 10;
             border: 1px solid rgba(0,0,0,0.1);
+            transition: all 0.2s;
         }
 
-        /* Footer */
+        .ls-bar.has-link:hover {
+            filter: brightness(0.9);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.15);
+        }
+
+        .ls-bar.has-link::after {
+            content: '🔗';
+            float: right;
+            margin-left: 5px;
+            font-size: 10px;
+            opacity: 0.7;
+        }
+
         footer {
             background: #fff;
             border-top: 1px solid var(--border-dark);
@@ -212,12 +220,22 @@ function stackPlanning($planning) {
                                         if($p['start'] == $w): 
                                             $numWeeks = ($p['end'] - $p['start'] + 1);
                                             $barWidth = "calc(" . ($numWeeks * 100) . "% + " . ($numWeeks - 1) . "px - 14px)";
+                                            $hasUrl = !empty($p['url']);
+                                            $linkClass = $hasUrl ? 'has-link' : '';
                                 ?>
-                                    <div class="ls-bar" style="background:<?= $p['color'] ?>; width:<?= $barWidth ?>; left: 7px;" title="<?= htmlspecialchars($p['title']) ?>">
-                                        <span style="font-weight:800"><?= htmlspecialchars($p['ls_nr']) ?>:</span> <?= htmlspecialchars($p['title']) ?>
-                                    </div>
+                                            <?php if($hasUrl): ?>
+                                                <a href="<?= htmlspecialchars($p['url']) ?>" target="_blank" style="text-decoration: none;">
+                                            <?php endif; ?>
+
+                                                <div class="ls-bar <?= $linkClass ?>" style="background:<?= $p['color'] ?>; width:<?= $barWidth ?>; left: 7px; cursor: <?= $hasUrl ? 'pointer' : 'default' ?>;" title="<?= htmlspecialchars($p['title']) . ($hasUrl ? ' (Klicken zum Öffnen)' : '') ?>">
+                                                    <span style="font-weight:800"><?= htmlspecialchars($p['ls_nr']) ?>:</span> <?= htmlspecialchars($p['title']) ?>
+                                                </div>
+
+                                            <?php if($hasUrl): ?>
+                                                </a>
+                                            <?php endif; ?>
                                 <?php 
-                                        endif;
+                                        endif; 
                                     endforeach;
                                 endif; 
                                 ?>
