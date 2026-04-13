@@ -10,7 +10,7 @@ if (!isset($_SESSION['logged_in'])) {
     else { die('<div style="text-align:center; margin-top:100px; font-family:sans-serif;"><h2>🔑 Admin Login</h2><form method="POST"><input type="password" name="login_pass" style="padding:10px;"><br><br><button type="submit" style="padding:10px 20px; background:#34495e; color:white; border:none; border-radius:4px; cursor:pointer;">Anmelden</button></form></div>'); }
 }
 
-$jsonFile = 'wizard_data.json';
+$jsonFile = 'didakt_data.json';
 $data = file_exists($jsonFile) ? json_decode(file_get_contents($jsonFile), true) : ['classes' => [], 'templates' => []];
 function saveData($d, $f) { file_put_contents($f, json_encode($d, JSON_PRETTY_PRINT)); }
 
@@ -186,7 +186,7 @@ if (isset($_GET['del_ls'])) {
 
 <div class="sidebar">
     <img src="logo.png" style="margin: 0 0 32px 0; max-width: 100%;">
-    <h2 style="font-size: 1.2rem; color: #111827; margin: 0 0 32px 0;">Planungs-Wizard</h2>
+    <h2 style="font-size: 1.2rem; color: #111827; margin: 0 0 32px 0;">Didaktische Jahresplanung</h2>
     
     <div style="margin-bottom: 30px;">
         <h3 style="color: #14508c">Neu anlegen</h3>

@@ -1,10 +1,5 @@
 <?php
-/**
- * DIDAKTISCHER WIZARD - VIEWER v3.3
- * Features: Dynamisches Stacking, Merged Sidebar, Full Grid Borders
- */
-
-$jsonFile = 'wizard_data.json';
+$jsonFile = 'didakt_data.json';
 $data = file_exists($jsonFile) ? json_decode(file_get_contents($jsonFile), true) : ['classes' => []];
 
 $selId = $_GET['c'] ?? (!empty($data['classes']) ? array_key_first($data['classes']) : null);
@@ -197,7 +192,7 @@ function stackPlanning($planning) {
         
         <div class="grid">
             <div class="cell header-cell" style="border-left: 1px solid var(--border-dark);">Fächer / Lernfelder</div>
-            <?php for($i=1; $i<=13; $i++) echo "<div class='cell header-cell'>Block $i</div>"; ?>
+            <?php for($i=1; $i<=13; $i++) echo "<div class='cell header-cell'>Woche $i</div>"; ?>
 
             <?php foreach($sorted as $catName => $subs): if(empty($subs)) continue; ?>
                 <div class="cat-row"><?= $catName ?></div>
