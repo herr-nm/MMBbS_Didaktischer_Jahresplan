@@ -1,8 +1,5 @@
 <?php
-/**
- * MMBbS Didaktische Jahresplanung - ADMIN v4.5
- * Backup-Import mit optionaler Namensänderung
- */
+
 session_start();
 
 // --- ZUGRIFFSSCHUTZ ---
@@ -13,7 +10,7 @@ if (!isset($_SESSION['logged_in'])) {
     else { die('<div style="text-align:center; margin-top:100px; font-family:sans-serif;"><h2>🔑 Admin Login</h2><form method="POST"><input type="password" name="login_pass" style="padding:10px;"><br><br><button type="submit" style="padding:10px 20px; background:#34495e; color:white; border:none; border-radius:4px; cursor:pointer;">Anmelden</button></form></div>'); }
 }
 
-$jsonFile = 'didakt_data.json';
+$jsonFile = 'wizard_data.json';
 $data = file_exists($jsonFile) ? json_decode(file_get_contents($jsonFile), true) : ['classes' => [], 'templates' => []];
 function saveData($d, $f) { file_put_contents($f, json_encode($d, JSON_PRETTY_PRINT)); }
 
@@ -52,6 +49,7 @@ if (isset($_POST['upload_backup'])) {
 }
 
 // --- AKTIONEN ---
+// --- AKTIONEN ---
 if (isset($_GET['delete_entity'])) {
     unset($data[$_GET['del_type']][$_GET['delete_entity']]);
     saveData($data, $jsonFile);
@@ -66,6 +64,7 @@ if (isset($_POST['add_entity'])) {
     header("Location: admin.php?edit_id=$id&type=$type"); exit;
 }
 
+// DIESE FUNKTION FEHLTE:
 if (isset($_POST['apply_template'])) {
     $tplId = $_POST['template_src_id'];
     if (isset($data['templates'][$tplId])) {
@@ -76,13 +75,29 @@ if (isset($_POST['apply_template'])) {
 }
 
 if (isset($_POST['save_subject'])) {
-    $sKey = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $_POST['sub_key']));
-    $data[$activeType][$activeId]['subjects'][$sKey] = [
+    $oldKey = $_POST['old_sub_key'] ?? '';
+    $newKey = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $_POST['sub_key']));
+    
+    $existingPlanning = [];
+    // Prüfen ob altes Fach existiert um Planung zu retten
+    if (!empty($oldKey) && isset($data[$activeType][$activeId]['subjects'][$oldKey])) {
+        $existingPlanning = $data[$activeType][$activeId]['subjects'][$oldKey]['planning'] ?? [];
+        if ($oldKey !== $newKey) {
+            unset($data[$activeType][$activeId]['subjects'][$oldKey]);
+        }
+    } 
+    // Falls kein oldKey da ist, aber das newKey schon existiert (normales Update ohne Key-Änderung)
+    elseif (isset($data[$activeType][$activeId]['subjects'][$newKey])) {
+        $existingPlanning = $data[$activeType][$activeId]['subjects'][$newKey]['planning'] ?? [];
+    }
+
+    $data[$activeType][$activeId]['subjects'][$newKey] = [
         'name' => $_POST['sub_name'],
         'total_hours' => (int)$_POST['sub_hours'],
         'category' => $_POST['sub_cat'],
-        'planning' => $data[$activeType][$activeId]['subjects'][$sKey]['planning'] ?? []
+        'planning' => $existingPlanning
     ];
+    
     saveData($data, $jsonFile);
     header("Location: admin.php?edit_id=$activeId&type=$activeType"); exit;
 }
@@ -142,13 +157,14 @@ if (isset($_GET['del_ls'])) {
         .ls-table td { padding: 12px; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
         .sidebar-bottom { margin-top: auto; padding-top: 20px; border-top: 1px solid #f3f4f6; }
         .badge { background:#f3f4f6; border:1px solid #e5e7eb; padding:4px 10px; border-radius:15px; font-size:12px; display:inline-flex; align-items:center; gap:8px; margin: 2px; }
+		
     </style>
 </head>
 <body>
 
 <div class="sidebar">
     <img src="logo.png" style="margin: 0 0 32px 0; max-width: 100%;">
-    <h2 style="font-size: 1.2rem; color: #111827; margin: 0 0 32px 0;">Didaktische Jahresplanung</h2>
+    <h2 style="font-size: 1.2rem; color: #111827; margin: 0 0 32px 0;">Planungs-Wizard</h2>
     
     <div style="margin-bottom: 30px;">
         <h3 style="color: #14508c">Neu anlegen</h3>
@@ -224,25 +240,50 @@ if (isset($_GET['del_ls'])) {
         </div>
 
         <div class="card">
-            <h3>Fächer & Lernfelder</h3>
-            <form method="POST">
-                <div class="form-grid">
-                    <div style="max-width: 100px;"><label>Kürzel</label><input type="text" name="sub_key" placeholder="LF1" required></div>
-                    <div class="col-wide"><label>Name des Fachs</label><input type="text" name="sub_name" required></div>
-                    <div style="max-width: 80px;"><label>Soll-h</label><input type="number" name="sub_hours" required></div>
-                    <div><label>Bereich</label><select name="sub_cat"><option value="bezogen">Berufsbezogen</option><option value="uebergreifend">Übergreifend</option></select></div>
-                    <button type="submit" name="save_subject" class="btn btn-green" style="margin-bottom:0">Hinzufügen</button>
-                </div>
-            </form>
-            <div style="display:flex; flex-wrap:wrap; gap:5px; margin-top:20px">
-                <?php foreach($current['subjects'] as $sk => $s): ?>
-                    <span class="badge">
-                        <strong><?= $sk ?></strong> (<?= $s['total_hours'] ?>h)
-                        <a href="?del_subject=<?= $sk ?>&edit_id=<?= $activeId ?>&type=<?= $activeType ?>" style="color:#ef4444; text-decoration:none;" onclick="return confirm('Fach löschen?')">×</a>
-                    </span>
-                <?php endforeach; ?>
+    <h3>Fächer & Lernfelder bearbeiten</h3>
+    <form method="POST" id="sub_form">
+        <input type="hidden" name="old_sub_key" id="old_sub_key" value="">
+        
+        <div class="form-grid">
+            <div style="max-width: 100px;">
+                <label>Kürzel</label>
+                <input type="text" name="sub_key" id="sub_key" placeholder="LF1" required>
+            </div>
+            <div class="col-wide">
+                <label>Name des Fachs</label>
+                <input type="text" name="sub_name" id="sub_name" required>
+            </div>
+            <div style="max-width: 80px;">
+                <label>Soll-h</label>
+                <input type="number" name="sub_hours" id="sub_hours" required>
+            </div>
+            <div>
+                <label>Bereich</label>
+                <select name="sub_cat" id="sub_cat">
+                    <option value="bezogen">Berufsbezogen</option>
+                    <option value="uebergreifend">Übergreifend</option>
+                </select>
+            </div>
+            <div style="display:flex; gap:8px">
+                <button type="submit" name="save_subject" class="btn btn-green" style="margin-bottom:0">Speichern</button>
+                <button type="button" onclick="resetSubForm()" class="btn btn-danger" style="margin-bottom:0">Reset</button>
             </div>
         </div>
+    </form>
+
+    <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:20px; border-top: 1px solid #f3f4f6; padding-top: 15px;">
+        <?php foreach($current['subjects'] as $sk => $s): ?>
+            <div class="badge" style="padding: 8px 12px; border-radius: 8px;">
+                <span style="cursor:pointer; flex:1" onclick='editSub("<?= $sk ?>", <?= json_encode($s) ?>)'>
+                    <strong><?= htmlspecialchars($sk) ?></strong>: <?= htmlspecialchars($s['name']) ?> (<?= $s['total_hours'] ?>h)
+                </span>
+                <a href="?del_subject=<?= $sk ?>&edit_id=<?= $activeId ?>&type=<?= $activeType ?>" 
+                   style="color:#ef4444; text-decoration:none; margin-left:10px; font-weight:bold" 
+                   onclick="return confirm('Fach wirklich löschen?')">×</a>
+            </div>
+        <?php endforeach; ?>
+    </div>
+</div>
 
         <div class="card">
             <h3>Lernsituation bearbeiten</h3>
@@ -279,24 +320,62 @@ if (isset($_GET['del_ls'])) {
 				</div>
             </form>
 
-            <table class="ls-table">
-                <thead><tr><th>Fach</th><th>Nr.</th><th>Thema / Titel</th><th>Dauer</th><th>Wochen</th><th>Aktion</th></tr></thead>
-                <tbody>
-                <?php foreach($current['subjects'] as $sk => $sub): foreach(($sub['planning']??[]) as $idx => $ls): ?>
-                    <tr>
-                        <td style="color:#6b7280; font-weight:bold;"><?= $sk ?></td>
-                        <td><?= htmlspecialchars($ls['ls_nr']) ?></td>
-                        <td><?= htmlspecialchars($ls['title']) ?></td>
-                        <td><?= $ls['hours'] ?>h</td>
-                        <td>KW <?= $ls['start'] ?> - <?= $ls['end'] ?></td>
-                        <td style="display:flex; gap:5px">
-                            <button class="btn btn-blue" style="width:auto; padding:5px 10px; margin:0" onclick='editLS(<?= json_encode($ls) ?>, "<?= $sk ?>", <?= $idx ?>)'>✎</button>
-                            <a href="?del_ls=<?= $idx ?>&sub=<?= $sk ?>&edit_id=<?= $activeId ?>&type=<?= $activeType ?>" class="btn btn-danger" style="width:auto; padding:5px 10px; margin:0" onclick="return confirm('LS löschen?')">×</a>
-                        </td>
-                    </tr>
-                <?php endforeach; endforeach; ?>
-                </tbody>
-            </table>
+            <?php
+				// 1. Die Fächer (Subjects) sortieren
+				// Nach deiner Logik: LF-Nummern zuerst, dann alphabetisch
+				uksort($current['subjects'], function($a, $b) {
+					// Falls beide mit LF beginnen, numerisch sortieren
+					if (str_starts_with($a, 'LF') && str_starts_with($b, 'LF')) {
+						return (int)substr($a, 2) <=> (int)substr($b, 2);
+					}
+					// Falls nur einer LF ist, kommt dieser zuerst
+					if (str_starts_with($a, 'LF')) return -1;
+					if (str_starts_with($b, 'LF')) return 1;
+					
+					// Ansonsten alphabetisch (z.B. GP, Deutsch, etc.)
+					return strnatcasecmp($a, $b);
+				});
+
+				// 2. Innerhalb jedes Fachs die Lernsituationen nach 'ls_nr' sortieren
+				foreach ($current['subjects'] as $sk => &$sub) {
+					if (isset($sub['planning']) && is_array($sub['planning'])) {
+						usort($sub['planning'], function($a, $b) {
+							// Natürliche Sortierung (behandelt 1.1, 1.2, 1.10 korrekt)
+							return strnatcmp($a['ls_nr'], $b['ls_nr']);
+						});
+					}
+				}
+				unset($sub); // Referenz löschen
+				?>
+
+				<table class="ls-table">
+					<thead>
+						<tr>
+							<th>Fach</th>
+							<th>Nr.</th>
+							<th>Thema / Titel</th>
+							<th>Dauer</th>
+							<th>Wochen</th>
+							<th>Aktion</th>
+						</tr>
+					</thead>
+					<tbody>
+						<?php foreach($current['subjects'] as $sk => $sub): 
+							foreach(($sub['planning']??[]) as $idx => $ls): ?>
+							<tr>
+								<td style="color:#6b7280; font-weight:bold;"><?= htmlspecialchars($sk) ?></td>
+								<td><?= htmlspecialchars($ls['ls_nr']) ?></td>
+								<td><?= htmlspecialchars($ls['title']) ?></td>
+								<td><?= $ls['hours'] ?>h</td>
+								<td>KW <?= $ls['start'] ?> - <?= $ls['end'] ?></td>
+								<td style="display:flex; gap:5px">
+									<button class="btn btn-blue" style="width:auto; padding:5px 10px; margin:0" onclick='editLS(<?= json_encode($ls) ?>, "<?= $sk ?>", <?= $idx ?>)'>✎</button>
+									<a href="?del_ls=<?= $idx ?>&sub=<?= $sk ?>&edit_id=<?= $activeId ?>&type=<?= $activeType ?>" class="btn btn-danger" style="width:auto; padding:5px 10px; margin:0" onclick="return confirm('LS löschen?')">×</a>
+								</td>
+							</tr>
+						<?php endforeach; endforeach; ?>
+					</tbody>
+				</table>
         </div>
 
         <script>
@@ -315,6 +394,21 @@ if (isset($_GET['del_ls'])) {
             document.getElementById('ls_index').value = "";
             document.getElementById('ls_form').reset();
         }
+			function editSub(key, data) {
+    document.getElementById('old_sub_key').value = key;
+    document.getElementById('sub_key').value = key;
+    document.getElementById('sub_name').value = data.name;
+    document.getElementById('sub_hours').value = data.total_hours;
+    document.getElementById('sub_cat').value = data.category;
+    
+    // Optisches Feedback: Zum Formular scrollen
+    window.scrollTo({top: 0, behavior: 'smooth'});
+}
+
+function resetSubForm() {
+    document.getElementById('old_sub_key').value = "";
+    document.getElementById('sub_form').reset();
+}
         </script>
 
     <?php else: ?>
@@ -324,25 +418,9 @@ if (isset($_GET['del_ls'])) {
             <p>Wählen Sie links eine Klasse aus oder nutzen Sie den Import.</p>
         </div>
     <?php endif; ?>
+	
+
+	
 </div>
-<footer>
-    <div class="footer-content">
-    <div class="footer-section">
-        <h4>Lizenz</h4>
-        <p>© <?= date('Y') ?> Multi Media Berufsbildende Schulen Hannover (MMBbS)</p>
-        <p>
-            Diese Software ist freie Software unter der 
-            <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" class="footer-link" style="font-weight: bold;">GNU AGPL v3</a>.
-            <br>
-            <small>Der Quellcode ist im <a href="https://github.com/herr-nm/MMBbS_Didaktischer_Jahresplan" target=new>Repository</a> verfügbar.</small>
-        </p>
-    </div>
-    <div class="footer-section" style="text-align: right;">
-        <h4>Kontakt</h4>
-        <p>E-Mail: <a href="mailto:info@mmbbs.de" class="footer-link">info@mmbbs.de</a><br>
-        Web: <a href="https://www.mmbbs.de" target="_blank" class="footer-link">www.mmbbs.de</a></p>
-    </div>
-</div>
-</footer>
 </body>
 </html>
