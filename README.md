@@ -1,0 +1,2 @@
+# MMBbS_Didaktischer_Jahresplan
+Darstellung des didaktischen Jahresplanes
