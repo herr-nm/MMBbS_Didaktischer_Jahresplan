@@ -113,7 +113,7 @@ function getSorted($subjects) {
         
         <div class="grid">
             <div class="cell header-cell">Lernbereiche / Fächer</div>
-            <?php for($i=1; $i<=13; $i++) echo "<div class='cell header-cell'>Block $i</div>"; ?>
+            <?php for($i=1; $i<=13; $i++) echo "<div class='cell header-cell'>Woche $i</div>"; ?>
 
             <?php foreach($sorted as $catName => $subs): if(empty($subs)) continue; ?>
                 <div class="cat-row"><?= $catName ?></div>
