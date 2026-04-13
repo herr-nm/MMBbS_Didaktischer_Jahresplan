@@ -329,7 +329,7 @@ if (isset($_GET['del_ls'])) {
     <div class="footer-content">
     <div class="footer-section">
         <h4>Lizenz</h4>
-        <p>© <?= date('Y') ?> Multi-Media-Berufsbildende Schulen Hannover (MMBbS)</p>
+        <p>© <?= date('Y') ?> Multi Media Berufsbildende Schulen Hannover (MMBbS)</p>
         <p>
             Diese Software ist freie Software unter der 
             <a href="https://www.gnu.org/licenses/agpl-3.0.html" target="_blank" class="footer-link" style="font-weight: bold;">GNU AGPL v3</a>.
