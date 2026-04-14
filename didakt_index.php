@@ -248,7 +248,7 @@ function filterClasses() {
 }
 
 function selectClass(id) {
-    window.location.href = 'index.php?c=' + id;
+    window.location.href = 'didakt_index.php?c=' + id;
 }
 
 window.onclick = function(event) {

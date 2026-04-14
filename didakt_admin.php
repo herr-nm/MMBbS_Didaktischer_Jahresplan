@@ -2,7 +2,7 @@
 session_start();
 
 // --- ZUGRIFFSSCHUTZ ---
-$password = "1234"; 
+$password = "MMBbS2026"; 
 if (isset($_GET['logout'])) { session_destroy(); header("Location: admin.php"); exit; }
 if (!isset($_SESSION['logged_in'])) {
     if (isset($_POST['login_pass']) && $_POST['login_pass'] === $password) { $_SESSION['logged_in'] = true; } 
@@ -46,7 +46,7 @@ if (isset($_POST['upload_backup'])) {
             $targetType = $_POST['upload_type'] ?? 'classes';
             $data[$targetType][$newId] = $uploadedData;
             saveData($data, $jsonFile);
-            header("Location: admin.php?edit_id=$newId&type=$targetType"); exit;
+            header("Location: didakt_admin.php?edit_id=$newId&type=$targetType"); exit;
         }
     }
 }
@@ -55,7 +55,7 @@ if (isset($_POST['upload_backup'])) {
 if (isset($_GET['delete_entity'])) {
     unset($data[$_GET['del_type']][$_GET['delete_entity']]);
     saveData($data, $jsonFile);
-    header("Location: admin.php"); exit;
+    header("Location: didakt_admin.php"); exit;
 }
 
 if (isset($_POST['add_entity'])) {
@@ -63,7 +63,7 @@ if (isset($_POST['add_entity'])) {
     $id = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $rawName));
     $type = isset($_POST['is_template']) ? 'templates' : 'classes';
     if ($id) { $data[$type][$id] = ['name' => $rawName, 'subjects' => []]; saveData($data, $jsonFile); }
-    header("Location: admin.php?edit_id=$id&type=$type"); exit;
+    header("Location: didakt_admin.php?edit_id=$id&type=$type"); exit;
 }
 
 if (isset($_POST['apply_template'])) {
@@ -72,7 +72,7 @@ if (isset($_POST['apply_template'])) {
         $data[$activeType][$activeId]['subjects'] = $data['templates'][$tplId]['subjects'];
         saveData($data, $jsonFile);
     }
-    header("Location: admin.php?edit_id=$activeId&type=$activeType"); exit;
+    header("Location: didakt_admin.php?edit_id=$activeId&type=$activeType"); exit;
 }
 
 if (isset($_POST['save_subject'])) {
@@ -92,13 +92,13 @@ if (isset($_POST['save_subject'])) {
         'planning' => $existingPlanning
     ];
     saveData($data, $jsonFile);
-    header("Location: admin.php?edit_id=$activeId&type=$activeType"); exit;
+    header("Location: didakt_admin.php?edit_id=$activeId&type=$activeType"); exit;
 }
 
 if (isset($_GET['del_subject'])) {
     unset($data[$activeType][$activeId]['subjects'][$_GET['del_subject']]);
     saveData($data, $jsonFile);
-    header("Location: admin.php?edit_id=$activeId&type=$activeType"); exit;
+    header("Location: didakt_admin.php?edit_id=$activeId&type=$activeType"); exit;
 }
 
 if (isset($_POST['save_ls'])) {
@@ -123,13 +123,13 @@ if (isset($_POST['save_ls'])) {
         return strnatcmp($a['ls_nr'], $b['ls_nr']);
     });
     saveData($data, $jsonFile);
-    header("Location: admin.php?edit_id=$activeId&type=$activeType"); exit;
+    header("Location: didakt_admin.php?edit_id=$activeId&type=$activeType"); exit;
 }
 
 if (isset($_GET['del_ls'])) {
     array_splice($data[$activeType][$activeId]['subjects'][$_GET['sub']]['planning'], $_GET['del_ls'], 1);
     saveData($data, $jsonFile);
-    header("Location: admin.php?edit_id=$activeId&type=$activeType"); exit;
+    header("Location: didakt_admin.php?edit_id=$activeId&type=$activeType"); exit;
 }
 ?>
 <!DOCTYPE html>
@@ -253,7 +253,7 @@ if (isset($_GET['del_ls'])) {
     </div>
 
     <div class="sidebar-bottom">
-        <a href="index.php" class="btn btn-blue">➔ Zum Viewer</a>
+        <a href="didakt_index.php" class="btn btn-blue">➔ Zum Viewer</a>
         <a href="?logout=1" class="btn btn-danger">Abmelden</a>
     </div>
 </div>
