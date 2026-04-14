@@ -3,49 +3,72 @@ session_start();
 
 // --- ZUGRIFFSSCHUTZ ---
 $password = "MMBbS2026"; 
-if (isset($_GET['logout'])) { session_destroy(); header("Location: admin.php"); exit; }
+if (isset($_GET['logout'])) { session_destroy(); header("Location: didakt_admin.php"); exit; }
 if (!isset($_SESSION['logged_in'])) {
     if (isset($_POST['login_pass']) && $_POST['login_pass'] === $password) { $_SESSION['logged_in'] = true; } 
     else { die('<div style="text-align:center; margin-top:100px; font-family:sans-serif;"><h2>🔑 Admin Login</h2><form method="POST"><input type="password" name="login_pass" style="padding:10px;"><br><br><button type="submit" style="padding:10px 20px; background:#34495e; color:white; border:none; border-radius:4px; cursor:pointer;">Anmelden</button></form></div>'); }
 }
 
-$jsonFile = 'didakt_data.json';
-$data = file_exists($jsonFile) ? json_decode(file_get_contents($jsonFile), true) : ['classes' => [], 'templates' => []];
-function saveData($d, $f) { file_put_contents($f, json_encode($d, JSON_PRETTY_PRINT)); }
+// --- SQLITE VERBINDUNG ---
+try {
+    $db = new PDO('sqlite:didakt_data.db');
+    $db->setAttribute(PDO::ATTR_ERRMODE, PDO::ERRMODE_EXCEPTION);
+} catch (Exception $e) {
+    die("Datenbankfehler. Bitte die Datei didakt_data.db sicherstellen.");
+}
 
 $activeId = $_GET['edit_id'] ?? null;
 $activeType = $_GET['type'] ?? 'classes';
 
-// --- NEU: SORTIERUNG FÜR DIE DROPDOWNS ---
-$dropdownClasses = $data['classes'] ?? [];
-uasort($dropdownClasses, function($a, $b) { return strnatcasecmp($a['name'] ?? '', $b['name'] ?? ''); });
-
-$dropdownTemplates = $data['templates'] ?? [];
-uasort($dropdownTemplates, function($a, $b) { return strnatcasecmp($a['name'] ?? '', $b['name'] ?? ''); });
-
-
-// --- EINZEL-BACKUP DOWNLOAD (EXPORT) ---
+// --- EINZEL-BACKUP EXPORT (JSON) ---
 if (isset($_GET['download_single']) && $activeId) {
-    if (isset($data[$activeType][$activeId])) {
-        $export = $data[$activeType][$activeId];
+    $stmt = $db->prepare("SELECT * FROM entities WHERE id = ?");
+    $stmt->execute([$activeId]);
+    $entity = $stmt->fetch(PDO::FETCH_ASSOC);
+    
+    if ($entity) {
+        $stmtSub = $db->prepare("SELECT * FROM subjects WHERE entity_id = ?");
+        $stmtSub->execute([$activeId]);
+        $subs = $stmtSub->fetchAll(PDO::FETCH_ASSOC);
+        
+        foreach($subs as &$s) {
+            $stmtLS = $db->prepare("SELECT * FROM planning WHERE subject_id = ?");
+            $stmtLS->execute([$s['id']]);
+            $s['planning'] = $lsRows = $stmtLS->fetchAll(PDO::FETCH_ASSOC);
+        }
+        $entity['subjects_data'] = $subs;
+        
         header('Content-Type: application/json');
         header('Content-Disposition: attachment; filename="Backup_'.$activeType.'_'.$activeId.'_'.date('Y-m-d').'.json"');
-        echo json_encode($export, JSON_PRETTY_PRINT);
+        echo json_encode($entity, JSON_PRETTY_PRINT);
         exit;
     }
 }
 
-// --- BACKUP EINLESEN (IMPORT) ---
+// --- BACKUP IMPORT ---
 if (isset($_POST['upload_backup'])) {
     if ($_FILES['backup_file']['error'] == 0) {
-        $uploadedData = json_decode(file_get_contents($_FILES['backup_file']['tmp_name']), true);
-        if ($uploadedData) {
-            $rawName = !empty($_POST['new_name']) ? trim($_POST['new_name']) : ($uploadedData['name'] ?? 'Import');
+        $json = json_decode(file_get_contents($_FILES['backup_file']['tmp_name']), true);
+        if ($json) {
+            $rawName = !empty($_POST['new_name']) ? trim($_POST['new_name']) : ($json['name'] ?? 'Import');
             $newId = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $rawName));
-            $uploadedData['name'] = $rawName;
             $targetType = $_POST['upload_type'] ?? 'classes';
-            $data[$targetType][$newId] = $uploadedData;
-            saveData($data, $jsonFile);
+            
+            $db->prepare("INSERT OR REPLACE INTO entities (id, name, type) VALUES (?, ?, ?)")->execute([$newId, $rawName, $targetType]);
+            
+            if (isset($json['subjects_data'])) {
+                foreach($json['subjects_data'] as $s) {
+                    $db->prepare("INSERT INTO subjects (entity_id, sub_key, name, total_hours, category) VALUES (?, ?, ?, ?, ?)")
+                       ->execute([$newId, $s['sub_key'], $s['name'], $s['total_hours'], $s['category']]);
+                    $subId = $db->lastInsertId();
+                    if (isset($s['planning'])) {
+                        foreach($s['planning'] as $ls) {
+                            $db->prepare("INSERT INTO planning (subject_id, ls_nr, title, hours, start, end, color, url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+                               ->execute([$subId, $ls['ls_nr'], $ls['title'], $ls['hours'], $ls['start'], $ls['end'], $ls['color'], $ls['url']]);
+                        }
+                    }
+                }
+            }
             header("Location: didakt_admin.php?edit_id=$newId&type=$targetType"); exit;
         }
     }
@@ -53,8 +76,7 @@ if (isset($_POST['upload_backup'])) {
 
 // --- AKTIONEN ---
 if (isset($_GET['delete_entity'])) {
-    unset($data[$_GET['del_type']][$_GET['delete_entity']]);
-    saveData($data, $jsonFile);
+    $db->prepare("DELETE FROM entities WHERE id = ?")->execute([$_GET['delete_entity']]);
     header("Location: didakt_admin.php"); exit;
 }
 
@@ -62,15 +84,25 @@ if (isset($_POST['add_entity'])) {
     $rawName = trim($_POST['entity_name']);
     $id = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $rawName));
     $type = isset($_POST['is_template']) ? 'templates' : 'classes';
-    if ($id) { $data[$type][$id] = ['name' => $rawName, 'subjects' => []]; saveData($data, $jsonFile); }
+    if ($id) $db->prepare("INSERT OR IGNORE INTO entities (id, name, type) VALUES (?, ?, ?)")->execute([$id, $rawName, $type]);
     header("Location: didakt_admin.php?edit_id=$id&type=$type"); exit;
 }
 
 if (isset($_POST['apply_template'])) {
     $tplId = $_POST['template_src_id'];
-    if (isset($data['templates'][$tplId])) {
-        $data[$activeType][$activeId]['subjects'] = $data['templates'][$tplId]['subjects'];
-        saveData($data, $jsonFile);
+    $db->prepare("DELETE FROM subjects WHERE entity_id = ?")->execute([$activeId]);
+    $stmt = $db->prepare("SELECT * FROM subjects WHERE entity_id = ?");
+    $stmt->execute([$tplId]);
+    while($s = $stmt->fetch(PDO::FETCH_ASSOC)) {
+        $db->prepare("INSERT INTO subjects (entity_id, sub_key, name, total_hours, category) VALUES (?, ?, ?, ?, ?)")
+           ->execute([$activeId, $s['sub_key'], $s['name'], $s['total_hours'], $s['category']]);
+        $newSubId = $db->lastInsertId();
+        $stmtLS = $db->prepare("SELECT * FROM planning WHERE subject_id = ?");
+        $stmtLS->execute([$s['id']]);
+        while($ls = $stmtLS->fetch(PDO::FETCH_ASSOC)) {
+            $db->prepare("INSERT INTO planning (subject_id, ls_nr, title, hours, start, end, color, url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+               ->execute([$newSubId, $ls['ls_nr'], $ls['title'], $ls['hours'], $ls['start'], $ls['end'], $ls['color'], $ls['url']]);
+        }
     }
     header("Location: didakt_admin.php?edit_id=$activeId&type=$activeType"); exit;
 }
@@ -78,179 +110,167 @@ if (isset($_POST['apply_template'])) {
 if (isset($_POST['save_subject'])) {
     $oldKey = $_POST['old_sub_key'] ?? '';
     $newKey = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $_POST['sub_key']));
-    $existingPlanning = [];
-    if (!empty($oldKey) && isset($data[$activeType][$activeId]['subjects'][$oldKey])) {
-        $existingPlanning = $data[$activeType][$activeId]['subjects'][$oldKey]['planning'] ?? [];
-        if ($oldKey !== $newKey) { unset($data[$activeType][$activeId]['subjects'][$oldKey]); }
-    } elseif (isset($data[$activeType][$activeId]['subjects'][$newKey])) {
-        $existingPlanning = $data[$activeType][$activeId]['subjects'][$newKey]['planning'] ?? [];
+    if (!empty($oldKey)) {
+        $db->prepare("UPDATE subjects SET sub_key = ?, name = ?, total_hours = ?, category = ? WHERE entity_id = ? AND sub_key = ?")
+           ->execute([$newKey, $_POST['sub_name'], (int)$_POST['sub_hours'], $_POST['sub_cat'], $activeId, $oldKey]);
+    } else {
+        $db->prepare("INSERT INTO subjects (entity_id, sub_key, name, total_hours, category) VALUES (?, ?, ?, ?, ?)")
+           ->execute([$activeId, $newKey, $_POST['sub_name'], (int)$_POST['sub_hours'], $_POST['sub_cat']]);
     }
-    $data[$activeType][$activeId]['subjects'][$newKey] = [
-        'name' => $_POST['sub_name'],
-        'total_hours' => (int)$_POST['sub_hours'],
-        'category' => $_POST['sub_cat'],
-        'planning' => $existingPlanning
-    ];
-    saveData($data, $jsonFile);
     header("Location: didakt_admin.php?edit_id=$activeId&type=$activeType"); exit;
 }
 
 if (isset($_GET['del_subject'])) {
-    unset($data[$activeType][$activeId]['subjects'][$_GET['del_subject']]);
-    saveData($data, $jsonFile);
+    $db->prepare("DELETE FROM subjects WHERE entity_id = ? AND sub_key = ?")->execute([$activeId, $_GET['del_subject']]);
     header("Location: didakt_admin.php?edit_id=$activeId&type=$activeType"); exit;
 }
 
 if (isset($_POST['save_ls'])) {
-    $sub = $_POST['subject'];
-    $lsData = [
-        'ls_nr' => $_POST['ls_nr'], 
-        'title' => $_POST['title'],
-        'hours' => (int)$_POST['hours'], 
-        'start' => (int)$_POST['start'],
-        'end' => (int)$_POST['end'], 
-        'color' => $_POST['color'],
-        'url' => $_POST['url'] ?? ''
-    ];
-    if (!isset($data[$activeType][$activeId]['subjects'][$sub]['planning'])) { $data[$activeType][$activeId]['subjects'][$sub]['planning'] = []; }
+    $stmt = $db->prepare("SELECT id FROM subjects WHERE entity_id = ? AND sub_key = ?");
+    $stmt->execute([$activeId, $_POST['subject']]);
+    $sub_id = $stmt->fetchColumn();
     if (isset($_POST['ls_index']) && $_POST['ls_index'] !== "") {
-        $index = (int)$_POST['ls_index'];
-        $data[$activeType][$activeId]['subjects'][$sub]['planning'][$index] = $lsData;
+        $db->prepare("UPDATE planning SET ls_nr = ?, title = ?, hours = ?, start = ?, end = ?, color = ?, url = ? WHERE id = ?")
+           ->execute([$_POST['ls_nr'], $_POST['title'], (int)$_POST['hours'], (int)$_POST['start'], (int)$_POST['end'], $_POST['color'], $_POST['url'], $_POST['ls_index']]);
     } else {
-        $data[$activeType][$activeId]['subjects'][$sub]['planning'][] = $lsData;
+        $db->prepare("INSERT INTO planning (subject_id, ls_nr, title, hours, start, end, color, url) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+           ->execute([$sub_id, $_POST['ls_nr'], $_POST['title'], (int)$_POST['hours'], (int)$_POST['start'], (int)$_POST['end'], $_POST['color'], $_POST['url']]);
     }
-    usort($data[$activeType][$activeId]['subjects'][$sub]['planning'], function($a, $b) {
-        return strnatcmp($a['ls_nr'], $b['ls_nr']);
-    });
-    saveData($data, $jsonFile);
     header("Location: didakt_admin.php?edit_id=$activeId&type=$activeType"); exit;
 }
 
-if (isset($_GET['del_ls'])) {
-    array_splice($data[$activeType][$activeId]['subjects'][$_GET['sub']]['planning'], $_GET['del_ls'], 1);
-    saveData($data, $jsonFile);
+if (isset($_GET['del_ls_sql_id'])) {
+    $db->prepare("DELETE FROM planning WHERE id = ?")->execute([$_GET['del_ls_sql_id']]);
     header("Location: didakt_admin.php?edit_id=$activeId&type=$activeType"); exit;
+}
+
+// --- DATEN LADEN ---
+$dropdownClasses = $db->query("SELECT * FROM entities WHERE type='classes' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+$dropdownTemplates = $db->query("SELECT * FROM entities WHERE type='templates' ORDER BY name")->fetchAll(PDO::FETCH_ASSOC);
+
+$current = null;
+$currentSubjects = [];
+if ($activeId) {
+    $stmt = $db->prepare("SELECT * FROM entities WHERE id = ?");
+    $stmt->execute([$activeId]);
+    $current = $stmt->fetch(PDO::FETCH_ASSOC);
+
+    // SORTIERUNG: Erst LF (numerisch), dann Fächer (alphabetisch)
+    $stmt = $db->prepare("SELECT * FROM subjects WHERE entity_id = ?");
+    $stmt->execute([$activeId]);
+    $currentSubjects = $stmt->fetchAll(PDO::FETCH_ASSOC);
+
+    usort($currentSubjects, function($a, $b) {
+        $isLF_a = (stripos($a['sub_key'], 'LF') === 0);
+        $isLF_b = (stripos($b['sub_key'], 'LF') === 0);
+        if ($isLF_a && !$isLF_b) return -1;
+        if (!$isLF_a && $isLF_b) return 1;
+        if ($isLF_a && $isLF_b) {
+            return (int)substr($a['sub_key'], 2) <=> (int)substr($b['sub_key'], 2);
+        }
+        return strcasecmp($a['sub_key'], $b['sub_key']);
+    });
 }
 ?>
 <!DOCTYPE html>
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <title>MMBbS Admin - Dashboard</title>
+    <title>Admin - Didaktik MMBbS</title>
     <style>
-        body { font-family: 'Segoe UI', system-ui, sans-serif; background: #f0f2f5; display: flex; margin: 0; min-height: 100vh; color: #374151; }
-        .sidebar { width: 300px; background: #fff; border-right: 1px solid #d1d5db; padding: 24px; display: flex; flex-direction: column; box-sizing: border-box; height: 100vh; position: fixed; top: 0; left: 0; overflow-y: auto; }
-        .main { margin-left: 300px; flex: 1; padding: 40px; }
-        .card { background: white; padding: 24px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 24px; border: 1px solid #e5e7eb; }
-        h3 { margin: 0 0 20px 0; font-size: 0.85rem; color: #6b7280; text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #f3f4f6; padding-bottom: 10px; }
+        :root { --primary-blue: #14508c; --sidebar-bg: #ffffff; --main-bg: #f0f2f5; }
+        body { font-family: 'Segoe UI', system-ui, sans-serif; background: var(--main-bg); display: flex; margin: 0; min-height: 100vh; color: #374151; }
         
-        /* NEUE DROPDOWN STYLES */
+        .sidebar { width: 320px; background: var(--sidebar-bg); border-right: 1px solid #d1d5db; padding: 24px; position: fixed; height: 100vh; overflow-y: auto; box-sizing: border-box; display: flex; flex-direction: column; }
+        .main { margin-left: 320px; flex: 1; padding: 40px; }
+        
+        .card { background: white; padding: 24px; border-radius: 12px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); margin-bottom: 24px; border: 1px solid #e5e7eb; }
+        h3 { margin: 0 0 15px 0; font-size: 0.85rem; color: var(--primary-blue); text-transform: uppercase; letter-spacing: 0.05em; border-bottom: 1px solid #f3f4f6; padding-bottom: 10px; font-weight: 700; }
+        
+        label { display: block; font-size: 12px; font-weight: 600; color: #4b5563; margin-bottom: 4px; }
+        input, select { width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; box-sizing: border-box; background: #f9fafb; margin-bottom: 10px; }
+        
+        .btn { display: block; width: 100%; padding: 10px 16px; border-radius: 8px; cursor: pointer; border: none; font-family: inherit; font-size: 14px; font-weight: 600; text-align: center; text-decoration: none; transition: all 0.2s; box-sizing: border-box; flex-shrink: 0; }
+        .btn-primary { background: #1f2937; color: white; }
+        .btn-blue { background: var(--primary-blue); color: white; }
+        .btn-green { background: #10b981; color: white; width: auto; display: inline-block; }
+        .btn-danger { background: #fff; color: #a6a6a7; border: 1px solid #fee2e2; }
+        .btn-danger:hover { background: #dc2626; color: white; border-color: #dc2626; }
+        .btn-secondary { background: #4b5563; color: white; }
+        
         .custom-select-container { position: relative; margin-bottom: 15px; }
-        .select-trigger { padding: 10px; background: #f0f7ff; border: 1px solid #bfdbfe; border-radius: 6px; cursor: pointer; display: flex; justify-content: space-between; align-items: center; font-size: 14px; }
-        .select-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #d1d5db; border-radius: 0 0 6px 6px; display: none; z-index: 9999; max-height: 250px; overflow-y: auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
+        .select-trigger { padding: 10px; background: #f0f7ff; border: 1px solid #bfdbfe; border-radius: 8px; cursor: pointer; display: flex; justify-content: space-between; font-size: 14px; color: var(--primary-blue); font-weight: 600; }
+        .select-dropdown { position: absolute; top: 100%; left: 0; right: 0; background: white; border: 1px solid #d1d5db; border-radius: 0 0 8px 8px; display: none; z-index: 1000; max-height: 250px; overflow-y: auto; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
         .select-dropdown.show { display: block; }
         .search-box { position: sticky; top: 0; background: #f9fafb; padding: 8px; border-bottom: 1px solid #eee; }
-        .search-box input { width: 100%; padding: 6px; border: 1px solid #ddd; border-radius: 4px; box-sizing: border-box; }
         .option-item { padding: 10px; cursor: pointer; font-size: 14px; border-bottom: 1px solid #f3f4f6; }
-        .option-item:hover { background: #eff6ff; color: #14508c; }
-        .option-item.hidden { display: none; }
+        .option-item:hover { background: #eff6ff; color: var(--primary-blue); }
 
-        .form-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(140px, 1fr)); gap: 15px; margin-bottom: 15px; align-items: end; }
-        .col-wide { grid-column: span 2; }
-        label { display: block; font-size: 12px; font-weight: 600; color: #4b5563; margin-bottom: 4px; }
-        input, select { width: 100%; padding: 10px; border: 1px solid #d1d5db; border-radius: 6px; font-size: 14px; box-sizing: border-box; background: #f9fafb; }
-        .btn { display: inline-block; width: 100%; padding: 10px 16px; border-radius: 6px; cursor: pointer; border: 1px solid transparent; box-sizing: border-box; transition: all 0.2s; text-decoration: none; margin-bottom: 8px; font-family: 'Segoe UI', sans-serif; font-size: 14px; font-weight: 600; text-align: center; }
-        .btn-primary { background: #1f2937; color: white; }
-        .btn-blue { background: #14508c; color: white; }
-        .btn-green { background: #10b981; color: white; }
-        .btn-danger { background: #fff; color: #a6a6a7; border: 1px solid #fee2e2; }
-        .btn-danger:hover { background: #dc2626; color: white; }
-        .btn-secondary { background: #4b5563; color: white; }
-        .ls-table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-        .ls-table th { text-align: left; padding: 12px; background: #f9fafb; font-size: 12px; color: #6b7280; border-bottom: 1px solid #e5e7eb; }
+        .badge { background:#f3f4f6; border:1px solid #e5e7eb; padding:6px 12px; border-radius:20px; font-size:12px; display:inline-flex; align-items:center; gap:8px; margin: 3px; }
+        .ls-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+        .ls-table th { text-align: left; padding: 12px; background: #f9fafb; font-size: 12px; border-bottom: 1px solid #e5e7eb; color: #64748b; }
         .ls-table td { padding: 12px; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
-        .sidebar-bottom { margin-top: auto; padding-top: 20px; border-top: 1px solid #f3f4f6; }
-        .badge { background:#f3f4f6; border:1px solid #e5e7eb; padding:4px 10px; border-radius:15px; font-size:12px; display:inline-flex; align-items:center; gap:8px; margin: 2px; }
+        .sidebar-bottom { margin-top: auto; padding-top: 20px; border-top: 1px solid #f3f4f6; display: flex; flex-direction: column; gap: 10px; }
     </style>
 </head>
 <body>
 
 <div class="sidebar">
-    <img src="logo.png" style="margin: 0 0 32px 0; max-width: 100%;" onerror="this.style.display='none'">
-    <h2 style="font-size: 1.2rem; color: #111827; margin: 0 0 32px 0;">Didaktische Jahresplanung</h2>
+    <img src="logo.png" style="max-width: 100%; margin-bottom: 25px;" onerror="this.style.display='none'">
     
-    <div style="margin-bottom: 30px;">
-        <h3 style="color: #14508c">Neu anlegen</h3>
-        <form method="POST">
-            <input type="text" name="entity_name" placeholder="Name (z.B. FISI24A)" required>
-            <label style="display:flex; align-items:center; gap:8px; margin: 10px 0; font-size:13px; cursor:pointer;">
-                <input type="checkbox" name="is_template" style="width:auto"> Als Vorlage speichern
-            </label>
-            <button type="submit" name="add_entity" class="btn btn-primary">Erstellen</button>
-        </form>
-    </div>
+    <h3>Neu anlegen</h3>
+    <form method="POST" style="margin-bottom: 20px;">
+        <input type="text" name="entity_name" placeholder="Name (z.B. FISI24A)" required>
+        <label style="display:flex; align-items:center; gap:8px; margin-bottom:10px; cursor:pointer;">
+            <input type="checkbox" name="is_template" style="width:auto; margin:0;"> Als Vorlage speichern
+        </label>
+        <button type="submit" name="add_entity" class="btn btn-primary">Erstellen</button>
+    </form>
 
-    <div style="margin-bottom: 30px;">
-        <h3 style="color: #14508c">Auswahl</h3>
-        
-        <div class="custom-select-container">
-            <label>Klassen</label>
-            <div class="select-trigger" onclick="toggleDropdown('classMenu')">
-                <span><?= ($activeId && $activeType == 'classes') ? htmlspecialchars($data['classes'][$activeId]['name']) : '-- wählen --' ?></span>
-                <small>▼</small>
-            </div>
-            <div class="select-dropdown" id="classMenu">
-                <div class="search-box">
-                    <input type="text" placeholder="Suchen..." onkeyup="filterSidebarList(this, 'classOpt')" onclick="event.stopPropagation()">
-                </div>
-                <?php foreach($dropdownClasses as $id => $c): ?>
-                    <div class="option-item classOpt" data-name="<?= strtolower(htmlspecialchars($c['name'])) ?>" onclick="location.href='?edit_id=<?= $id ?>&type=classes'">
-                        <?= htmlspecialchars($c['name']) ?>
-                    </div>
-                <?php endforeach; ?>
-            </div>
+    <h3>Auswahl</h3>
+    <div class="custom-select-container">
+        <label>Klassen</label>
+        <div class="select-trigger" onclick="toggleDropdown('classMenu')">
+            <span><?= ($activeId && $activeType=='classes') ? htmlspecialchars($current['name']) : '-- wählen --' ?></span><small>▼</small>
         </div>
-
-        <div class="custom-select-container">
-            <label>Vorlagen</label>
-            <div class="select-trigger" onclick="toggleDropdown('tplMenu')">
-                <span><?= ($activeId && $activeType == 'templates') ? "📂 ".htmlspecialchars($data['templates'][$activeId]['name']) : '-- wählen --' ?></span>
-                <small>▼</small>
-            </div>
-            <div class="select-dropdown" id="tplMenu">
-                <div class="search-box">
-                    <input type="text" placeholder="Suchen..." onkeyup="filterSidebarList(this, 'tplOpt')" onclick="event.stopPropagation()">
-                </div>
-                <?php foreach($dropdownTemplates as $id => $t): ?>
-                    <div class="option-item tplOpt" data-name="<?= strtolower(htmlspecialchars($t['name'])) ?>" onclick="location.href='?edit_id=<?= $id ?>&type=templates'">
-                        📂 <?= htmlspecialchars($t['name']) ?>
-                    </div>
-                <?php endforeach; ?>
-            </div>
+        <div class="select-dropdown" id="classMenu">
+            <div class="search-box"><input type="text" placeholder="Suchen..." onkeyup="filterList(this, 'cO')" onclick="event.stopPropagation()"></div>
+            <?php foreach($dropdownClasses as $c): ?>
+                <div class="option-item cO" onclick="location.href='?edit_id=<?= $c['id'] ?>&type=classes'"><?= htmlspecialchars($c['name']) ?></div>
+            <?php endforeach; ?>
         </div>
-
-        <?php if($activeId): ?>
-            <a href="?delete_entity=<?= $activeId ?>&del_type=<?= $activeType ?>" class="btn btn-danger" onclick="return confirm('Wirklich alles löschen?')">🗑️ Aktuelle Auswahl löschen</a>
-        <?php endif; ?>
     </div>
 
-    <div style="margin-bottom: 30px;">
-        <h3 style="color: #14508c">Backup & Import</h3>
-        <form method="POST" enctype="multipart/form-data" style="margin-bottom: 15px; border-bottom: 1px solid #f3f4f6; padding-bottom: 15px;">
-            <label>Datei auswählen:</label>
-            <input type="file" name="backup_file" required style="font-size:11px; margin-bottom:8px;">
-            <label>Neuer Name (optional):</label>
-            <input type="text" name="new_name" placeholder="Leer lassen = Original" style="font-size:12px; margin-bottom:8px;">
-            <select name="upload_type" style="padding:5px; font-size:12px; margin-bottom:8px;">
-                <option value="classes">Als Klasse importieren</option>
-                <option value="templates">Als Vorlage importieren</option>
-            </select>
-            <button type="submit" name="upload_backup" class="btn btn-secondary">Import</button>
-        </form>
-        <?php if($activeId): ?>
-            <a href="?download_single=1&edit_id=<?= $activeId ?>&type=<?= $activeType ?>" class="btn btn-secondary">Einzel-Backup (.json)</a>
-        <?php endif; ?>
+    <div class="custom-select-container">
+        <label>Vorlagen</label>
+        <div class="select-trigger" onclick="toggleDropdown('tplMenu')">
+            <span><?= ($activeId && $activeType=='templates') ? "📂 ".htmlspecialchars($current['name']) : '-- wählen --' ?></span><small>▼</small>
+        </div>
+        <div class="select-dropdown" id="tplMenu">
+            <div class="search-box"><input type="text" placeholder="Suchen..." onkeyup="filterList(this, 'tO')" onclick="event.stopPropagation()"></div>
+            <?php foreach($dropdownTemplates as $t): ?>
+                <div class="option-item tO" onclick="location.href='?edit_id=<?= $t['id'] ?>&type=templates'">📂 <?= htmlspecialchars($t['name']) ?></div>
+            <?php endforeach; ?>
+        </div>
     </div>
+
+    <?php if($activeId): ?>
+        <a href="?delete_entity=<?= $activeId ?>" class="btn btn-danger" style="margin-bottom:20px;" onclick="return confirm('Wirklich löschen?')">🗑️ Auswahl löschen</a>
+    <?php endif; ?>
+
+    <h3>Backup & Import</h3>
+    <form method="POST" enctype="multipart/form-data" style="margin-bottom:15px;">
+        <input type="file" name="backup_file" required style="font-size:11px;">
+        <input type="text" name="new_name" placeholder="Neuer Name (optional)" style="font-size:12px;">
+        <select name="upload_type" style="font-size:12px;">
+            <option value="classes">Als Klasse importieren</option>
+            <option value="templates">Als Vorlage importieren</option>
+        </select>
+        <button type="submit" name="upload_backup" class="btn btn-secondary">Import</button>
+    </form>
+    <?php if($activeId): ?>
+        <a href="?download_single=1&edit_id=<?= $activeId ?>&type=<?= $activeType ?>" class="btn btn-secondary">Einzel-Backup (.json)</a>
+    <?php endif; ?>
 
     <div class="sidebar-bottom">
         <a href="didakt_index.php" class="btn btn-blue">➔ Zum Viewer</a>
@@ -259,16 +279,16 @@ if (isset($_GET['del_ls'])) {
 </div>
 
 <div class="main">
-    <?php if($activeId && isset($data[$activeType][$activeId])): $current = $data[$activeType][$activeId]; ?>
+    <?php if($current): ?>
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:30px;">
-            <h1 style="margin:0; font-size:1.8rem;"><?= ($activeType=='templates'?'Vorlage: ':'Klasse: ') . htmlspecialchars($current['name']) ?></h1>
+            <h1 style="margin:0;"><?= ($activeType=='templates'?'Vorlage: ':'Klasse: ') . htmlspecialchars($current['name']) ?></h1>
             <?php if($activeType == 'classes'): ?>
-            <form method="POST" style="display:flex; gap:8px; align-items:center; background:#fff; padding:10px; border-radius:8px; border:1px solid #d1d5db;">
+            <form method="POST" style="display:flex; gap:10px; align-items:center; background:#fff; padding:10px; border-radius:10px; border:1px solid #d1d5db;">
                 <label style="margin:0; white-space:nowrap">Aus Vorlage laden:</label>
-                <select name="template_src_id" style="width:150px; margin:0">
-                    <?php foreach($data['templates'] as $tid => $t) echo "<option value='$tid'>{$t['name']}</option>"; ?>
+                <select name="template_src_id" style="margin:0; width:150px;">
+                    <?php foreach($dropdownTemplates as $t) echo "<option value='{$t['id']}'>{$t['name']}</option>"; ?>
                 </select>
-                <button type="submit" name="apply_template" class="btn btn-warning" style="margin:0; width:auto;" onclick="return confirm('Fächer werden überschrieben!')">Anwenden</button>
+                <button type="submit" name="apply_template" class="btn btn-primary" style="width:auto;" onclick="return confirm('Fächer werden überschrieben!')">Anwenden</button>
             </form>
             <?php endif; ?>
         </div>
@@ -276,30 +296,23 @@ if (isset($_GET['del_ls'])) {
         <div class="card">
             <h3>Fächer & Lernfelder bearbeiten</h3>
             <form method="POST" id="sub_form">
-                <input type="hidden" name="old_sub_key" id="old_sub_key" value="">
-                <div class="form-grid">
-                    <div style="max-width: 100px;"><label>Kürzel</label><input type="text" name="sub_key" id="sub_key" placeholder="LF1" required></div>
-                    <div class="col-wide"><label>Name des Fachs</label><input type="text" name="sub_name" id="sub_name" required></div>
-                    <div style="max-width: 80px;"><label>Soll-h</label><input type="number" name="sub_hours" id="sub_hours" required></div>
-                    <div><label>Bereich</label>
-                        <select name="sub_cat" id="sub_cat">
-                            <option value="bezogen">Berufsbezogen</option>
-                            <option value="uebergreifend">Übergreifend</option>
-                        </select>
-                    </div>
-                    <div style="display:flex; gap:8px">
-                        <button type="submit" name="save_subject" class="btn btn-green" style="margin-bottom:0">Speichern</button>
-                        <button type="button" onclick="resetSubForm()" class="btn btn-danger" style="margin-bottom:0">Reset</button>
+                <input type="hidden" name="old_sub_key" id="old_sub_key">
+                <div style="display:grid; grid-template-columns: 100px 1fr 100px 180px 220px; gap:12px; align-items:end;">
+                    <div><label>Kürzel</label><input type="text" name="sub_key" id="sub_key" required></div>
+                    <div><label>Name des Fachs</label><input type="text" name="sub_name" id="sub_name" required></div>
+                    <div><label>Soll-h</label><input type="number" name="sub_hours" id="sub_hours" required></div>
+                    <div><label>Bereich</label><select name="sub_cat" id="sub_cat"><option value="bezogen">Berufsbezogen</option><option value="uebergreifend">Übergreifend</option></select></div>
+                    <div style="display:flex; gap:8px; margin-bottom:10px;">
+                        <button type="submit" name="save_subject" class="btn btn-green">Speichern</button>
+                        <button type="button" onclick="resetSub()" class="btn btn-danger" style="width:auto; display:inline-block;">Reset</button>
                     </div>
                 </div>
             </form>
-            <div style="display:flex; flex-wrap:wrap; gap:10px; margin-top:20px; border-top: 1px solid #f3f4f6; padding-top: 15px;">
-                <?php foreach($current['subjects'] as $sk => $s): ?>
-                    <div class="badge" style="padding: 8px 12px; border-radius: 8px;">
-                        <span style="cursor:pointer; flex:1" onclick='editSub("<?= $sk ?>", <?= json_encode($s) ?>)'>
-                            <strong><?= htmlspecialchars($sk) ?></strong>: <?= htmlspecialchars($s['name']) ?> (<?= $s['total_hours'] ?>h)
-                        </span>
-                        <a href="?del_subject=<?= $sk ?>&edit_id=<?= $activeId ?>&type=<?= $activeType ?>" style="color:#ef4444; text-decoration:none; margin-left:10px; font-weight:bold" onclick="return confirm('Fach wirklich löschen?')">×</a>
+            <div style="margin-top:20px; border-top:1px solid #eee; padding-top:15px;">
+                <?php foreach($currentSubjects as $s): ?>
+                    <div class="badge">
+                        <span onclick='editSub(<?= json_encode($s) ?>)' style="cursor:pointer"><strong><?= $s['sub_key'] ?></strong>: <?= $s['name'] ?> (<?= $s['total_hours'] ?>h)</span>
+                        <a href="?del_subject=<?= $s['sub_key'] ?>&edit_id=<?= $activeId ?>&type=<?= $activeType ?>" style="color:red; font-weight:bold; text-decoration:none;">×</a>
                     </div>
                 <?php endforeach; ?>
             </div>
@@ -308,91 +321,68 @@ if (isset($_GET['del_ls'])) {
         <div class="card">
             <h3>Lernsituation bearbeiten</h3>
             <form method="POST" id="ls_form">
-                <input type="hidden" name="ls_index" id="ls_index" value="">
-                <div class="form-grid">
-                    <div><label>Fach</label><select name="subject" id="ls_sub"><?php foreach($current['subjects'] as $k => $s) echo "<option value='$k'>$k - {$s['name']}</option>"; ?></select></div>
-                    <div class="col-wide"><label>Titel</label><input type="text" name="title" id="ls_title" required></div>
+                <input type="hidden" name="ls_index" id="ls_index">
+                <div style="display:grid; grid-template-columns: 200px 1fr 100px; gap:12px;">
+                    <div><label>Fach</label><select name="subject" id="ls_sub"><?php foreach($currentSubjects as $s) echo "<option value='{$s['sub_key']}'>{$s['sub_key']} - {$s['name']}</option>"; ?></select></div>
+                    <div><label>Titel / Thema</label><input type="text" name="title" id="ls_title" required></div>
                     <div><label>LS-Nr.</label><input type="text" name="ls_nr" id="ls_nr"></div>
                 </div>
-                <div class="form-grid">
+                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr 2fr 120px 220px; gap:12px; align-items:end;">
                     <div><label>Stunden</label><input type="number" name="hours" id="ls_hours" required></div>
-                    <div><label>Start (W)</label><input type="number" name="start" id="ls_start" min="1" max="13"></div>
-                    <div><label>Ende (W)</label><input type="number" name="end" id="ls_end" min="1" max="13"></div>
-                    <div class="col-wide"><label>Link (optional)</label><input type="url" name="url" id="ls_url"></div>
-                    <div style="min-width: 140px;">
-                        <label>Farbe</label>
-                        <div style="display: flex; gap: 4px;">
-                            <input type="color" id="ls_color_picker" style="width: 45px; height: 41px; padding: 2px; cursor: pointer;" oninput="document.getElementById('ls_color').value = this.value">
-                            <input type="text" name="color" id="ls_color" value="#d1e7dd" style="width: 90px;">
-                        </div>
-                    </div>
-                    <div style="display:flex; gap:8px">
-                        <button type="submit" name="save_ls" class="btn btn-blue" style="margin-bottom:0">Speichern</button>
-                        <button type="button" onclick="resetLSForm()" class="btn btn-danger" style="margin-bottom:0">Reset</button>
+                    <div><label>Start (W)</label><input type="number" name="start" id="ls_start"></div>
+                    <div><label>Ende (W)</label><input type="number" name="end" id="ls_end"></div>
+                    <div><label>Link (optional)</label><input type="url" name="url" id="ls_url"></div>
+                    <div><label>Farbe</label><input type="color" name="color" id="ls_color" value="#d1e7dd" style="padding:2px; height:41px;"></div>
+                    <div style="display:flex; gap:8px; margin-bottom:10px;">
+                        <button type="submit" name="save_ls" class="btn btn-blue" style="width:auto;">LS Speichern</button>
+                        <button type="button" onclick="resetLS()" class="btn btn-danger" style="width:auto;">Reset</button>
                     </div>
                 </div>
             </form>
-
             <table class="ls-table">
                 <thead><tr><th>Fach</th><th>Nr.</th><th>Thema / Titel</th><th>Dauer</th><th>Wochen</th><th>Aktion</th></tr></thead>
                 <tbody>
-                    <?php 
-                    $subs = $current['subjects'];
-                    uksort($subs, function($a, $b) {
-                        if (str_starts_with($a, 'LF') && str_starts_with($b, 'LF')) return (int)substr($a, 2) <=> (int)substr($b, 2);
-                        if (str_starts_with($a, 'LF')) return -1;
-                        if (str_starts_with($b, 'LF')) return 1;
-                        return strnatcasecmp($a, $b);
-                    });
-                    foreach($subs as $sk => $sub): 
-                        foreach(($sub['planning']??[]) as $idx => $ls): ?>
-                        <tr>
-                            <td style="color:#6b7280; font-weight:bold;"><?= htmlspecialchars($sk) ?></td>
-                            <td><?= htmlspecialchars($ls['ls_nr']) ?></td>
-                            <td><?= htmlspecialchars($ls['title']) ?></td>
-                            <td><?= $ls['hours'] ?>h</td>
-                            <td>KW <?= $ls['start'] ?> - <?= $ls['end'] ?></td>
-                            <td style="display:flex; gap:5px">
-                                <button class="btn btn-blue" style="width:auto; padding:5px 10px; margin:0" onclick='editLS(<?= json_encode($ls) ?>, "<?= $sk ?>", <?= $idx ?>)'>✎</button>
-                                <a href="?del_ls=<?= $idx ?>&sub=<?= $sk ?>&edit_id=<?= $activeId ?>&type=<?= $activeType ?>" class="btn btn-danger" style="width:auto; padding:5px 10px; margin:0" onclick="return confirm('LS löschen?')">×</a>
-                            </td>
-                        </tr>
-                    <?php endforeach; endforeach; ?>
+                <?php foreach($currentSubjects as $s): 
+                    // Innerhalb eines Fachs nach LS-Nummer sortieren
+                    $lsStmt = $db->prepare("SELECT * FROM planning WHERE subject_id = ? ORDER BY CAST(ls_nr AS UNSIGNED), ls_nr");
+                    $lsStmt->execute([$s['id']]);
+                    while($ls = $lsStmt->fetch(PDO::FETCH_ASSOC)): ?>
+                    <tr>
+                        <td><strong><?= $s['sub_key'] ?></strong></td>
+                        <td><?= $ls['ls_nr'] ?></td>
+                        <td><?= $ls['title'] ?></td>
+                        <td><?= $ls['hours'] ?>h</td>
+                        <td>W<?= $ls['start'] ?>-<?= $ls['end'] ?></td>
+                        <td>
+                            <button class="btn btn-blue" style="padding:4px 10px; width:auto; display:inline-block;" onclick='editLS(<?= json_encode($ls) ?>, "<?= $s['sub_key'] ?>")'>✎</button>
+                            <a href="?del_ls_sql_id=<?= $ls['id'] ?>&edit_id=<?= $activeId ?>&type=<?= $activeType ?>" class="btn btn-danger" style="padding:4px 10px; width:auto; display:inline-block;">×</a>
+                        </td>
+                    </tr>
+                <?php endwhile; endforeach; ?>
                 </tbody>
             </table>
-        </div>
-    <?php else: ?>
-        <div style="text-align:center; margin-top:100px; color:#9ba3af">
-            <div style="font-size: 4rem; margin-bottom:20px;">🗓️</div>
-            <h2>Willkommen im Admin-Panel</h2>
-            <p>Wählen Sie links eine Klasse oder Vorlage aus.</p>
         </div>
     <?php endif; ?>
 </div>
 
 <script>
-// --- SIDEBAR DROPDOWN FUNKTIONEN ---
 function toggleDropdown(id) {
     document.querySelectorAll('.select-dropdown').forEach(d => { if(d.id !== id) d.classList.remove('show'); });
     document.getElementById(id).classList.toggle('show');
 }
-
-function filterSidebarList(input, className) {
-    const val = input.value.toLowerCase();
-    document.querySelectorAll('.' + className).forEach(opt => {
-        opt.classList.toggle('hidden', !opt.getAttribute('data-name').includes(val));
-    });
+function filterList(input, className) {
+    let v = input.value.toLowerCase();
+    document.querySelectorAll('.'+className).forEach(o => o.style.display = o.textContent.toLowerCase().includes(v) ? '' : 'none');
 }
-
-window.onclick = function(event) {
-    if (!event.target.closest('.custom-select-container')) {
-        document.querySelectorAll('.select-dropdown').forEach(d => d.classList.remove('show'));
-    }
+function editSub(s) {
+    document.getElementById('old_sub_key').value = s.sub_key;
+    document.getElementById('sub_key').value = s.sub_key;
+    document.getElementById('sub_name').value = s.name;
+    document.getElementById('sub_hours').value = s.total_hours;
+    document.getElementById('sub_cat').value = s.category;
 }
-
-// --- BEARBEITUNGS FUNKTIONEN ---
-function editLS(ls, subKey, index) {
-    document.getElementById('ls_index').value = index;
+function editLS(ls, subKey) {
+    document.getElementById('ls_index').value = ls.id;
     document.getElementById('ls_sub').value = subKey;
     document.getElementById('ls_title').value = ls.title;
     document.getElementById('ls_nr').value = ls.ls_nr;
@@ -400,23 +390,11 @@ function editLS(ls, subKey, index) {
     document.getElementById('ls_start').value = ls.start;
     document.getElementById('ls_end').value = ls.end;
     document.getElementById('ls_color').value = ls.color;
-    document.getElementById('ls_color_picker').value = ls.color;
-    if(document.getElementById('ls_url')) document.getElementById('ls_url').value = ls.url || "";
-    window.scrollTo({top: 150, behavior: 'smooth'});
+    document.getElementById('ls_url').value = ls.url || '';
 }
-
-function resetLSForm() { document.getElementById('ls_index').value = ""; document.getElementById('ls_form').reset(); }
-
-function editSub(key, data) {
-    document.getElementById('old_sub_key').value = key;
-    document.getElementById('sub_key').value = key;
-    document.getElementById('sub_name').value = data.name;
-    document.getElementById('sub_hours').value = data.total_hours;
-    document.getElementById('sub_cat').value = data.category;
-    window.scrollTo({top: 0, behavior: 'smooth'});
-}
-
-function resetSubForm() { document.getElementById('old_sub_key').value = ""; document.getElementById('sub_form').reset(); }
+function resetSub() { document.getElementById('old_sub_key').value = ""; document.getElementById('sub_form').reset(); }
+function resetLS() { document.getElementById('ls_index').value = ""; document.getElementById('ls_form').reset(); }
+window.onclick = e => { if(!e.target.closest('.custom-select-container')) document.querySelectorAll('.select-dropdown').forEach(d => d.classList.remove('show')); }
 </script>
 </body>
 </html>
