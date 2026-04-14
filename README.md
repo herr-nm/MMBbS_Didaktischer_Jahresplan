@@ -1,68 +1,58 @@
 # MMBbS Didaktische Jahresplanung
 
-Ein webbasiertes Tool zur Erstellung und Visualisierung didaktischer Jahresplanungen für Berufsschulklassen. Das Tool zur didaktischen Jahresplanung ermöglicht es, Fächer, Lernfelder und Lernsituationen strukturiert zu erfassen und in einer übersichtlichen Blockplanung darzustellen. Die Datenhaltung erfolgt rein dateibasiert über eine JSON-Datei, was die Installation und Backups extrem vereinfacht.
+Ein spezialisiertes Web-Tool zur Erstellung, Verwaltung und Visualisierung didaktischer Jahresplanungen an den Multi Media Berufsbildenden Schulen Hannover.
 
-## 🚀 Features
+## 📸 Einblicke
 
-  - **Zwei-Modul-System:**
-      - **Viewer (`index.php`):** Öffentliche Ansicht der fertigen Jahresplanungen für Schüler und Lehrer. Bietet eine Filterfunktion nach Klassen.
-      - **Admin-Bereich (`admin.php`):** Passwortgeschützter Bereich zum Anlegen, Bearbeiten und Verwalten von Klassen, Vorlagen und Planungsdaten.
-  - **Klassen- & Vorlagenverwaltung:**
-      - Anlegen von spezifischen Klassen (z.B. "FISI24A").
-      - Erstellen von Vorlagen, um Planungsstrukturen für neue Klassenjahresgänge wiederzuverwenden.
-  - **Detaillierte Fachplanung:**
-      - Erfassung von Fächern/Lernfeldern mit Kürzel, vollem Namen, Soll-Stunden und Bereich (Berufsbezogen/Übergreifend).
-  - **Lernsituationen-Editor:**
-      - Definition von Lernsituationen (LS) mit Titel, Nummer, Dauer (Stunden) und zeitlicher Einordnung (Start-/Endwoche).
-      - Individuelle Farbkodierung für jede Lernsituation zur visuellen Abgrenzung im Diagramm.
-  - **Interaktive Blockplanung:** Grafische Darstellung der Lernsituationen als farbige Balken über 13 Planungsblöcke im Viewer.
-  - **Backup & Import:**
-      - Exportfunktion für einzelne Klassen/Vorlagen als JSON-Datei.
-      - Importfunktion für Backups mit optionaler Namensänderung und Typkonvertierung (Klasse \<-\> Vorlage).
-  - **Sicherheit:** Einfacher Passwortschutz für den Admin-Bereich.
-  - **Responsive UI:** Modernes, klares Design (angelehnt an Tailwind/GitHub-Style) mit Schullogo-Integration.
+### Public Viewer
 
-## 🛠️ Installation & Konfiguration
+Die Benutzeroberfläche für Schüler und Lehrkräfte zur Ansicht der aktuellen Planungen.
 
-1.  **Voraussetzungen:**
+![Public Viewer](bilder/index.png)
 
-      - Webserver mit PHP 7.4 oder höher (z.B. Apache, Nginx).
-      - Schreibrechte im Projektverzeichnis für die JSON-Datenbank.
+### Admin-Panel
 
-2.  **Dateien kopieren:**
-    Lade alle Projektdateien (`index.php`, `admin.php`, `didakt_data.json`, `logo.png`) in ein Verzeichnis auf deinem Webserver hoch.
+Das Backend zur Verwaltung von Lernsituationen, Stundenkontingenten und Zeiträumen.
 
-3.  **Berechtigungen:**
-    Stelle sicher, dass der Webserver Schreibzugriff auf die Datei `didakt_data.json` hat:
-
-    ```bash
-    chmod 664 didakt_data.json
-    ```
-
-4.  **Admin-Passwort ändern:**
-    Öffne die `admin.php` in einem Texteditor und ändere das Standardpasswort in Zeile 10:
-
-    ```php
-    $password = "DEIN_NEUES_PASSWORT"; // Standard: MMBbS2026
-    ```
-
-## 📊 Dateistruktur
-
-  - `index.php`: Das öffentliche Frontend zur Ansicht der Jahresplanungen.
-  - `admin.php`: Der geschützte Backend-Bereich zur Datenverwaltung.
-  - `didakt_data.json`: Die zentrale Datenbank im JSON-Format. Enthält alle Klassen, Vorlagen und Planungsdaten.
-  - `logo.png`: Das Logo der Multi-Media-Berufsbildende Schulen Hannover (MMBbS).
-
-## 🖥️ Verwendete Technologien
-
-  - **Backend:** PHP (rein serverseitig, keine externe DB erforderlich).
-  - **Frontend:** HTML5, CSS3 (Grid-Layout für die Planung, modernes UI-Design).
-  - **Datenformat:** JSON.
-
-## 📄 Lizenz
-
-Dieses Projekt ist freie Software und lizenziert unter der **GNU Affero General Public License v3.0 (AGPL-3.0)** – siehe die [LICENSE](https://www.google.com/search?q=LICENSE) Datei für Details. Der Quellcode ist im Repository verfügbar.
+![Admin-Panel](bilder/admin.png)
 
 -----
 
-*Entwickelt für die Multi Media Berufsbildenden Schulen Hannover (MMBbS).*
+## 🚀 Features
+
+  - **Duale Ansicht:** 
+      - **Viewer (`index.php`):** Übersichtliche, farbkodierte Blockplanung mit Filterfunktion für Klassen.
+      - **Admin (`admin.php`):** Vollständige Kontrolle über alle Daten inklusive Import/Export-Logik.
+  - **Flexibles "Stacking":** Überlappende Lernsituationen werden automatisch in Zeilen untereinander gestapelt.
+  - **Daten-Portabilität:** Schneller Wechsel zwischen Klassen und Vorlagen durch JSON-basierte Datenhaltung.
+
+## 📂 Beispiel-Daten (JSON)
+
+Im Projekt sind bereits Vorlagen und Beispieldaten für die kaufmännischen IT-Berufe enthalten:
+
+  * erstes und zweites Ausbildungsjahr der kaufmännischen IT-Berufe
+  * drittes Ausbildungsjahr der Kaufleute für Digitalisierungsmanagement
+  * drittes Ausbildungsjahr der Kaufleute für IT-System-Management
+  * **Beispiel-Klassen:** Drei vorkonfigurierte Klassen zur sofortigen Demonstration der Funktionalität.
+
+## 🛠️ Installation
+
+1.  **Server-Check:** PHP 7.4+ Webserver (z. B. Apache/Nginx).
+2.  **Upload:** Alle Dateien (`index.php`, `admin.php`, `didakt_data.json`, `logo.png`) hochladen.
+3.  **Screenshots:** Die Dateien `index.png` und `admin.png` für die Anzeige in dieser Readme im Root-Verzeichnis ablegen.
+4.  **Rechte:** Schreibrechte für `didakt_data.json` vergeben (`chmod 664`).
+5.  **Login:** Standard-Passwort in `admin.php` anpassen (Variable `$password`).
+
+## 📊 Technische Details
+
+  - **Backend:** PHP (Single-File Logic).
+  - **Frontend:** CSS Grid für die zeitliche Darstellung der Blöcke (Woche 1–13 pro Block).
+  - **Speicher:** `didakt_data.json` – einfach zu sichern und versionierbar über Git.
+
+## 📄 Lizenz
+
+Dieses Tool ist unter der **GNU Affero General Public License v3.0 (AGPL-3.0)** lizenziert. Der Quellcode muss bei Bereitstellung über ein Netzwerk zugänglich gemacht werden.
+
+-----
+
+*Entwickelt für die MMBbS Hannover*
