@@ -327,12 +327,21 @@ if ($activeId) {
                     <div><label>Titel / Thema</label><input type="text" name="title" id="ls_title" required></div>
                     <div><label>LS-Nr.</label><input type="text" name="ls_nr" id="ls_nr"></div>
                 </div>
-                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr 2fr 120px 220px; gap:12px; align-items:end;">
+                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr 2fr 180px 220px; gap:12px; align-items:end;">
                     <div><label>Stunden</label><input type="number" name="hours" id="ls_hours" required></div>
                     <div><label>Start (W)</label><input type="number" name="start" id="ls_start"></div>
                     <div><label>Ende (W)</label><input type="number" name="end" id="ls_end"></div>
                     <div><label>Link (optional)</label><input type="url" name="url" id="ls_url"></div>
-                    <div><label>Farbe</label><input type="color" name="color" id="ls_color" value="#d1e7dd" style="padding:2px; height:41px;"></div>
+                    <div>
+    <label>Farbe (Hex)</label>
+    <div style="display:flex; gap:4px; align-items: flex-start;">
+        <input type="color" name="color" id="ls_color" value="#d1e7dd" 
+               style="width: 45px; height: 40px; padding: 0; border: 1px solid #d1d5db; border-radius: 6px; cursor: pointer; flex-shrink: 0; background: none;">
+        
+        <input type="text" id="ls_color_hex" placeholder="#FFFFFF" 
+               style="height: 40px; margin-bottom: 0; flex-grow: 1; text-transform: uppercase; font-family: monospace; font-size: 13px; padding: 10px; box-sizing: border-box;">
+    </div>
+</div>
                     <div style="display:flex; gap:8px; margin-bottom:10px;">
                         <button type="submit" name="save_ls" class="btn btn-blue" style="width:auto;">LS Speichern</button>
                         <button type="button" onclick="resetLS()" class="btn btn-danger" style="width:auto;">Reset</button>
@@ -391,7 +400,35 @@ function editLS(ls, subKey) {
     document.getElementById('ls_end').value = ls.end;
     document.getElementById('ls_color').value = ls.color;
     document.getElementById('ls_url').value = ls.url || '';
+    document.getElementById('ls_color').value = ls.color; 
+    document.getElementById('ls_color_hex').value = ls.color.toUpperCase();
 }
+document.addEventListener('DOMContentLoaded', () => {
+    const colorPicker = document.getElementById('ls_color');
+    const colorHex = document.getElementById('ls_color_hex');
+
+    // Initialwert setzen
+    if(colorPicker && colorHex) {
+        colorHex.value = colorPicker.value.toUpperCase();
+
+        // Wenn man im Picker klickt -> Hex-Feld aktualisieren
+        colorPicker.addEventListener('input', () => {
+            colorHex.value = colorPicker.value.toUpperCase();
+        });
+
+        // Wenn man im Hex-Feld tippt -> Picker aktualisieren
+        colorHex.addEventListener('input', () => {
+            let val = colorHex.value;
+            if(!val.startsWith('#')) val = '#' + val;
+            if(/^#[0-9A-F]{6}$/i.test(val)) {
+                colorPicker.value = val;
+            }
+        });
+    }
+});
+
+// WICHTIG: In der vorhandenen editLS-Funktion diese Zeile ergänzen:
+// document.getElementById('ls_color_hex').value = ls.color.toUpperCase();
 function resetSub() { document.getElementById('old_sub_key').value = ""; document.getElementById('sub_form').reset(); }
 function resetLS() { document.getElementById('ls_index').value = ""; document.getElementById('ls_form').reset(); }
 window.onclick = e => { if(!e.target.closest('.custom-select-container')) document.querySelectorAll('.select-dropdown').forEach(d => d.classList.remove('show')); }
